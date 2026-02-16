@@ -70,6 +70,145 @@ Before writing a custom analyzer, check these tools:
 - `sort.Search` → `slices.BinarySearch` (no existing linter)
 - Compound clamp `if-elseif-else` → `min(max(...))` (modernize deliberately excludes this)
 
+## Bazel nogo Integration
+
+### What is nogo?
+nogo is a static analysis tool built into Bazel's [rules_go](https://github.com/bazel-contrib/rules_go).
+It runs `go/analysis`-based analyzers as part of the build process itself -- every
+`go_library`, `go_binary`, and `go_test` target is analyzed automatically. Because
+it runs inside Bazel's action graph, analysis results are cached and parallelized
+just like compilation.
+
+### How it integrates with `go/analysis`
+nogo uses **static code generation** (via `generate_nogo_main.go`) to produce a
+binary that imports every analyzer package listed in the `nogo()` rule's `deps`
+attribute. Each package **must** export a variable named `Analyzer` of type
+`*analysis.Analyzer`. The generated binary calls `analysis.Validate` on all
+analyzers at init-time, then invokes each analyzer once per Go package being
+compiled.
+
+This is the same `Analyzer` variable convention we already follow in each of our
+packages (`makecopy.Analyzer`, `searchmigrate.Analyzer`, `clampcheck.Analyzer`),
+so our analyzers are nogo-compatible out of the box.
+
+### `nogo()` rule attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | string | Unique target name (mandatory) |
+| `deps` | label_list | `go_library` targets exporting an `Analyzer` variable |
+| `config` | label | JSON file controlling per-analyzer behavior |
+| `vet` | bool | If `True`, adds a safe subset of vet analyzers (atomic, bools, buildtag, nilfunc, printf) |
+
+### Config JSON format
+The top-level keys must match `Analyzer.Name` for each registered analyzer.
+A special `_base` key provides defaults inherited by all analyzers.
+
+```json
+{
+  "_base": {
+    "exclude_files": {
+      "external/": "skip all external dependencies",
+      "third_party/": "skip vendored code"
+    }
+  },
+  "makecopy": {
+    "only_files": {
+      "src/.*": "only analyze first-party source"
+    }
+  },
+  "searchmigrate": {
+    "exclude_files": {
+      "generated\\.go$": "skip generated files"
+    }
+  },
+  "clampcheck": {},
+  "printf": {
+    "analyzer_flags": {
+      "funcs": "Wrapf,Errorf"
+    }
+  }
+}
+```
+
+Supported fields per analyzer:
+- `only_files` — regex-keyed map; analyzer only reports on matching files.
+- `exclude_files` — regex-keyed map; overrides `only_files` for matching files.
+  Values are description strings explaining the exclusion.
+- `analyzer_flags` — map of flag names (without `-` prefix) to string values,
+  passed to the analyzer via its `analysis.Analyzer.Flags` field.
+
+### Registering nogo
+
+**WORKSPACE (legacy)**:
+```python
+load("@io_bazel_rules_go//go:deps.bzl", "go_rules_dependencies", "go_register_nogo")
+go_rules_dependencies()
+go_register_toolchains(version = "1.23.1")
+go_register_nogo(nogo = "@//:my_nogo")
+```
+
+**Bzlmod (MODULE.bazel)**:
+```python
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.nogo(nogo = "//:my_nogo")
+```
+
+With Bzlmod you can scope analysis to specific packages:
+```python
+go_sdk.nogo(
+    nogo = "//:my_nogo",
+    includes = ["//:__subpackages__"],
+    excludes = ["//third_party:__subpackages__"],
+)
+```
+
+### nogo vs golangci-lint
+
+| Aspect | nogo | golangci-lint |
+|--------|------|---------------|
+| When it runs | Build-time (inside `bazel build`) | Separate CLI invocation |
+| Caching | Bazel's incremental build cache | Its own cache |
+| Failure mode | Fails the build on any diagnostic | Exit code / CI gate |
+| Auto-fix | Generates patch files, cannot apply inline | `--fix` flag applies directly |
+| Line-level suppression | Not supported (file-level `exclude_files` only) | `//nolint` comments |
+| Analyzer discovery | One exported `Analyzer` per Go package | Plugin system or built-in registry |
+| Config granularity | Global JSON, regex-based file matching | Rich YAML, per-linter settings |
+| Best for | Large Bazel monorepos, enforcing build-time gates | General Go projects, developer workflow |
+
+### Gotchas and limitations
+- **Diagnostics fail the build.** Only emit diagnostics for issues severe enough to
+  block a build. In golangci-lint, warnings are common; in nogo, every diagnostic
+  is a hard failure.
+- **One `Analyzer` per Go package.** nogo discovers analyzers by looking for a
+  package-level `var Analyzer`. Tools like staticcheck that bundle many analyzers in
+  one package need wrapper packages (one per analyzer) for nogo compatibility.
+- **No `//nolint`-style suppression.** Suppression is file-level only via
+  `exclude_files` in the config JSON. There is no way to suppress a single finding
+  on one line.
+- **External repos.** WORKSPACE mode analyzes external repos by default; Bzlmod
+  excludes them by default. Either way, many external packages will not pass strict
+  analysis, so `exclude_files` with `"external/"` is almost always needed.
+- **Config changes trigger full rebuild.** Changing `nogo_config.json` invalidates
+  cached analysis results for all Go targets.
+- **Fix application is indirect.** Analyzers can produce `SuggestedFix` values, but
+  nogo writes them as patch files. You must extract and apply them manually:
+  ```bash
+  bazel build //... --norun_validations --output_groups nogo_fix
+  ```
+- **Compilation must succeed first.** nogo runs after the Go compiler; if a file
+  does not compile, it is not analyzed.
+- **Tag `"no-nogo"` to skip.** Add the tag to any target where analysis should be
+  skipped (useful for large generated code).
+
+### Useful links
+- [Official nogo docs (nogo.rst)](https://github.com/bazel-contrib/rules_go/blob/master/go/nogo.rst)
+- [rules_go Bzlmod docs](https://github.com/bazel-contrib/rules_go/blob/master/docs/go/core/bzlmod.md)
+- [sluongng/nogo-analyzer](https://github.com/sluongng/nogo-analyzer) — Example of
+  wrapping staticcheck/golangci-lint analyzers for nogo
+- [nogo_main.go](https://github.com/bazel-contrib/rules_go/blob/master/go/tools/builders/nogo_main.go) —
+  The generated nogo runner source
+
 ## Useful commands
 
 ```bash
