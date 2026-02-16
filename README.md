@@ -3,15 +3,16 @@
 Custom Go static analyzers for modern Go 1.25+ idioms. These analyzers detect
 patterns that can be simplified using newer standard library functions.
 
-Usable standalone via `go vet`, as a [golangci-lint v2 module plugin](https://golangci-lint.run/docs/plugins/module-plugins/), or with Bazel's [nogo](https://github.com/bazel-contrib/rules_go/blob/master/go/nogo.rst) for build-time analysis.
+Usable standalone via `go vet` or with Bazel's [nogo](https://github.com/bazel-contrib/rules_go/blob/master/go/nogo.rst) for build-time analysis.
 
 ## Analyzers
 
 | Analyzer | Detects | Suggests |
 |---|---|---|
-| `makecopy` | `make([]T, len(s)); copy(dst, s)` | `slices.Clone(s)` |
+| `makecopy` | `make([]T, len(s)); copy(dst, s)` (including subslice variants) | `slices.Clone(s)` |
 | `searchmigrate` | `sort.Search(n, func(i int) bool { ... })` | `slices.BinarySearch(s, v)` |
-| `clampcheck` | `if x < lo { x = lo } else if x > hi { x = hi }` | `min(max(x, lo), hi)` |
+| `clampcheck` | if-else-if clamp chains and consecutive if-return clamp patterns | `min(max(x, lo), hi)` |
+| `sortmigrate` | `sort.Strings`, `sort.Ints`, `sort.Slice`, etc. | `slices.Sort`, `slices.SortFunc`, etc. |
 
 ## Why these analyzers?
 
@@ -19,9 +20,10 @@ The official [modernize](https://pkg.go.dev/golang.org/x/tools/go/analysis/passe
 suite and [revive](https://github.com/mgechev/revive)'s `use-slices-sort` rule cover most
 Go 1.21+ modernization patterns. These analyzers fill the remaining gaps:
 
-- **`makecopy`**: `modernize`'s `appendclipped` only catches `append`-based clones, not `make`+`copy`.
+- **`makecopy`**: `modernize`'s `appendclipped` only catches `append`-based clones, not `make`+`copy`. Also detects subslice variants like `make([]T, len(s)-idx); copy(dst, s[idx:])`.
 - **`searchmigrate`**: No existing linter detects `sort.Search` → `slices.BinarySearch`.
-- **`clampcheck`**: `modernize`'s `minmax` handles simple `if/else` → `min`/`max` but deliberately excludes nested `if-elseif-else` clamp patterns.
+- **`clampcheck`**: `modernize`'s `minmax` handles simple `if/else` → `min`/`max` but deliberately excludes nested `if-elseif-else` clamp patterns. Also detects consecutive if-return clamp patterns.
+- **`sortmigrate`**: Detects deprecated `sort.Strings`, `sort.Ints`, `sort.Float64s`, `sort.Slice`, `sort.SliceStable`, `sort.SliceIsSorted`, and their `AreSorted` variants, suggesting `slices.Sort`, `slices.SortFunc`, `slices.IsSorted`, etc.
 
 ## Installation
 
@@ -34,34 +36,7 @@ go vet -vettool=$(which go-analyzers) ./...
 
 ### golangci-lint v2 module plugin
 
-1. Create `.custom-gcl.yml` in your project:
-
-```yaml
-version: v2.9.0
-plugins:
-  - module: 'github.com/albertocavalcante/go-analyzers'
-    version: v0.1.0
-```
-
-2. Build custom binary:
-
-```bash
-golangci-lint custom
-```
-
-3. Add to your golangci-lint config:
-
-```toml
-[linters.settings.custom.go-analyzers]
-type = "module"
-description = "Custom analyzers for modern Go idioms"
-```
-
-4. Run:
-
-```bash
-./custom-gcl run ./...
-```
+For golangci-lint integration, see [go-analyzers-gcl](https://github.com/albertocavalcante/go-analyzers-gcl).
 
 ### Bazel nogo (build-time analysis)
 
@@ -97,6 +72,7 @@ nogo(
         "@com_github_albertocavalcante_go_analyzers//makecopy",
         "@com_github_albertocavalcante_go_analyzers//searchmigrate",
         "@com_github_albertocavalcante_go_analyzers//clampcheck",
+        "@com_github_albertocavalcante_go_analyzers//sortmigrate",
     ],
     config = ":nogo_config.json",
     vet = True,
@@ -149,7 +125,8 @@ Create `nogo_config.json` in your repository root to control analyzer behavior:
   },
   "makecopy": {},
   "searchmigrate": {},
-  "clampcheck": {}
+  "clampcheck": {},
+  "sortmigrate": {}
 }
 ```
 

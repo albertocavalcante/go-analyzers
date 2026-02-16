@@ -15,6 +15,42 @@ func example() {
 	_ = result
 }
 
+type GreenChild struct{ name string }
+
+type node struct {
+	children []GreenChild
+}
+
+func subsliceVariant() {
+	top := node{children: []GreenChild{{name: "a"}, {name: "b"}, {name: "c"}}}
+	idx := 1
+
+	// Should be flagged: make+copy with subslice, len of subslice form.
+	taken := make([]GreenChild, len(top.children[idx:])) // want "make\\+copy can be simplified to taken := slices.Clone\\(top\\.children\\[idx:\\]\\)"
+	copy(taken, top.children[idx:])
+	_ = taken
+}
+
+func subsliceLenMinusIdx() {
+	src := []int{1, 2, 3, 4, 5}
+	start := 2
+
+	// Should be flagged: make+copy with len(src)-start == len(src[start:]).
+	dst := make([]int, len(src)-start) // want "make\\+copy can be simplified to dst := slices.Clone\\(src\\[start:\\]\\)"
+	copy(dst, src[start:])
+	_ = dst
+}
+
+func subsliceSimple() {
+	src := []string{"a", "b", "c", "d"}
+	i := 1
+
+	// Should be flagged: len(src[i:]) form directly.
+	dst := make([]string, len(src[i:])) // want "make\\+copy can be simplified to dst := slices.Clone\\(src\\[i:\\]\\)"
+	copy(dst, src[i:])
+	_ = dst
+}
+
 func noMatch() {
 	src := []int{1, 2, 3}
 

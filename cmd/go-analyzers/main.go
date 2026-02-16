@@ -11,6 +11,7 @@ import (
 	"github.com/albertocavalcante/go-analyzers/clampcheck"
 	"github.com/albertocavalcante/go-analyzers/makecopy"
 	"github.com/albertocavalcante/go-analyzers/searchmigrate"
+	"github.com/albertocavalcante/go-analyzers/sortmigrate"
 )
 
 func main() {
@@ -18,5 +19,6 @@ func main() {
 		makecopy.Analyzer,
 		searchmigrate.Analyzer,
 		clampcheck.Analyzer,
+		sortmigrate.Analyzer,
 	)
 }

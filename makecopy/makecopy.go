@@ -99,24 +99,6 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt) {
 		return
 	}
 
-	// Second arg should be len(src).
-	lenCall, ok := makeCall.Args[1].(*ast.CallExpr)
-	if !ok {
-		return
-	}
-
-	lenFun, ok := lenCall.Fun.(*ast.Ident)
-	if !ok || lenFun.Name != "len" || len(lenCall.Args) != 1 {
-		return
-	}
-
-	// Verify it's the builtin len.
-	if obj := pass.TypesInfo.ObjectOf(lenFun); obj != nil && obj.Pkg() != nil {
-		return // not the builtin
-	}
-
-	srcFromLen := lenCall.Args[0]
-
 	// Statement 2: copy(name, src)
 	exprStmt, ok := s2.(*ast.ExprStmt)
 	if !ok {
@@ -149,16 +131,68 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt) {
 		return
 	}
 
-	// Second arg to copy must match the arg to len().
 	copySrc := copyCall.Args[1]
-	if !sameExpr(pass, copySrc, srcFromLen) {
-		return
+
+	// Second arg should be len(src) — check multiple forms.
+	if matchLenSource(pass, makeCall.Args[1], copySrc) {
+		srcStr := types.ExprString(copySrc)
+		pass.Reportf(assign.Pos(),
+			"make+copy can be simplified to %s := slices.Clone(%s)",
+			dstIdent.Name, srcStr)
+	}
+}
+
+// matchLenSource reports whether lenArg is a length expression that matches
+// copySrc. It handles these forms:
+//
+//	len(src)         with copy(dst, src)
+//	len(src[start:]) with copy(dst, src[start:])
+//	len(src)-start   with copy(dst, src[start:])
+func matchLenSource(pass *analysis.Pass, lenArg ast.Expr, copySrc ast.Expr) bool {
+	// Form 1 & 2: len(x) where x matches copySrc exactly.
+	if lenCall, ok := lenArg.(*ast.CallExpr); ok {
+		if isBuiltinLen(pass, lenCall) {
+			return sameExpr(pass, lenCall.Args[0], copySrc)
+		}
 	}
 
-	srcStr := types.ExprString(copySrc)
-	pass.Reportf(assign.Pos(),
-		"make+copy can be simplified to %s := slices.Clone(%s)",
-		dstIdent.Name, srcStr)
+	// Form 3: len(base)-idx with copy(dst, base[idx:])
+	binExpr, ok := lenArg.(*ast.BinaryExpr)
+	if !ok || binExpr.Op != token.SUB {
+		return false
+	}
+
+	// The LHS must be len(base).
+	lenCall, ok := binExpr.X.(*ast.CallExpr)
+	if !ok || !isBuiltinLen(pass, lenCall) {
+		return false
+	}
+
+	// copySrc must be a slice expression base[idx:] (open-ended).
+	sliceExpr, ok := copySrc.(*ast.SliceExpr)
+	if !ok || sliceExpr.High != nil || sliceExpr.Max != nil {
+		return false
+	}
+
+	// base in len(base) must match base in base[idx:]
+	if !sameExpr(pass, lenCall.Args[0], sliceExpr.X) {
+		return false
+	}
+
+	// idx in len(base)-idx must match idx in base[idx:]
+	return sameExpr(pass, binExpr.Y, sliceExpr.Low)
+}
+
+// isBuiltinLen reports whether call is a call to the builtin len with one argument.
+func isBuiltinLen(pass *analysis.Pass, call *ast.CallExpr) bool {
+	lenFun, ok := call.Fun.(*ast.Ident)
+	if !ok || lenFun.Name != "len" || len(call.Args) != 1 {
+		return false
+	}
+	if obj := pass.TypesInfo.ObjectOf(lenFun); obj != nil && obj.Pkg() != nil {
+		return false // not the builtin
+	}
+	return true
 }
 
 // sameExpr reports whether two expressions refer to the same thing.
@@ -174,6 +208,37 @@ func sameExpr(pass *analysis.Pass, a, b ast.Expr) bool {
 	bSel, bOk := b.(*ast.SelectorExpr)
 	if aOk && bOk {
 		return aSel.Sel.Name == bSel.Sel.Name && sameExpr(pass, aSel.X, bSel.X)
+	}
+
+	// Handle slice expressions: x[i:] == x[i:]
+	aSlice, aOk := a.(*ast.SliceExpr)
+	bSlice, bOk := b.(*ast.SliceExpr)
+	if aOk && bOk {
+		if !sameExpr(pass, aSlice.X, bSlice.X) {
+			return false
+		}
+		// Both must have same low bound.
+		if (aSlice.Low == nil) != (bSlice.Low == nil) {
+			return false
+		}
+		if aSlice.Low != nil && !sameExpr(pass, aSlice.Low, bSlice.Low) {
+			return false
+		}
+		// Both must have same high bound.
+		if (aSlice.High == nil) != (bSlice.High == nil) {
+			return false
+		}
+		if aSlice.High != nil && !sameExpr(pass, aSlice.High, bSlice.High) {
+			return false
+		}
+		return true
+	}
+
+	// Handle index expressions: x[i] == x[i]
+	aIdx, aOk := a.(*ast.IndexExpr)
+	bIdx, bOk := b.(*ast.IndexExpr)
+	if aOk && bOk {
+		return sameExpr(pass, aIdx.X, bIdx.X) && sameExpr(pass, aIdx.Index, bIdx.Index)
 	}
 
 	return false

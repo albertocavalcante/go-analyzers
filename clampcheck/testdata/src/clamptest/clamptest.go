@@ -28,6 +28,58 @@ func reversed() {
 	_ = x
 }
 
+// Consecutive if-return clamp patterns (not else-if).
+
+func clampReturn(v, lo, hi int) int {
+	if v < lo { // want "clamp pattern can be simplified"
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func clampReturnReversed(v, lo, hi int) int {
+	if v > hi { // want "clamp pattern can be simplified"
+		return hi
+	}
+	if v < lo {
+		return lo
+	}
+	return v
+}
+
+func clampReturnLEQ(v, lo, hi int) int {
+	if v <= lo { // want "clamp pattern can be simplified"
+		return lo
+	}
+	if v >= hi {
+		return hi
+	}
+	return v
+}
+
+func noMatchReturn(v int) int {
+	// Only one comparison — not a clamp.
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func noMatchReturnDiffVars(v, lo, hi int) int {
+	// Different variables in comparisons — not a clamp.
+	w := v + 1
+	if v < lo {
+		return lo
+	}
+	if w > hi {
+		return hi
+	}
+	return v
+}
+
 func noMatch() {
 	x := 50
 
