@@ -1,5 +1,7 @@
 package makecopytest
 
+import "slices"
+
 func example() {
 	src := []int{1, 2, 3}
 

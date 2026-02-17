@@ -44,6 +44,10 @@ func run(pass *analysis.Pass) (any, error) {
 		(*ast.BlockStmt)(nil),
 	}
 
+	// Track which files have already received an import TextEdit for "slices"
+	// to avoid duplicate edits when multiple diagnostics exist in the same file.
+	importEditAdded := map[string]bool{}
+
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
 		block := n.(*ast.BlockStmt)
 		if len(block.List) < 2 {
@@ -51,7 +55,7 @@ func run(pass *analysis.Pass) (any, error) {
 		}
 
 		for i := 0; i < len(block.List)-1; i++ {
-			checkPair(pass, block.List[i], block.List[i+1])
+			checkPair(pass, block.List[i], block.List[i+1], importEditAdded)
 		}
 	})
 
@@ -62,7 +66,7 @@ func run(pass *analysis.Pass) (any, error) {
 //
 //	name := make([]T, len(src))
 //	copy(name, src)
-func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt) {
+func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt, importEditAdded map[string]bool) {
 	// Statement 1: name := make([]T, len(src))
 	assign, ok := s1.(*ast.AssignStmt)
 	if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
@@ -141,19 +145,31 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt) {
 			dstIdent.Name, srcStr)
 		newText := fmt.Sprintf("%s := slices.Clone(%s)", dstIdent.Name, srcStr)
 
+		edits := []analysis.TextEdit{
+			{
+				Pos:     assign.Pos(),
+				End:     s2.End(),
+				NewText: []byte(newText),
+			},
+		}
+
+		// Add "slices" import if not already added for this file.
+		file := findFileForPos(pass, assign.Pos())
+		fileName := pass.Fset.File(assign.Pos()).Name()
+		if file != nil && !importEditAdded[fileName] {
+			if ie := addImportEdit(file, "slices"); ie != nil {
+				edits = append(edits, *ie)
+				importEditAdded[fileName] = true
+			}
+		}
+
 		pass.Report(analysis.Diagnostic{
 			Pos:     assign.Pos(),
 			Message: msg,
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
 					Message: msg,
-					TextEdits: []analysis.TextEdit{
-						{
-							Pos:     assign.Pos(),
-							End:     s2.End(),
-							NewText: []byte(newText),
-						},
-					},
+					TextEdits: edits,
 				},
 			},
 		})
@@ -260,4 +276,59 @@ func sameExpr(pass *analysis.Pass, a, b ast.Expr) bool {
 	}
 
 	return false
+}
+
+// findFileForPos returns the *ast.File that contains the given position.
+func findFileForPos(pass *analysis.Pass, pos token.Pos) *ast.File {
+	for _, f := range pass.Files {
+		if pass.Fset.File(f.Pos()).Name() == pass.Fset.File(pos).Name() {
+			return f
+		}
+	}
+	return nil
+}
+
+// addImportEdit creates a TextEdit to add the given package to the file's imports.
+// It returns nil if the package is already imported.
+func addImportEdit(file *ast.File, pkg string) *analysis.TextEdit {
+	quotedPkg := fmt.Sprintf("%q", pkg)
+
+	// Check if already imported.
+	for _, imp := range file.Imports {
+		if imp.Path.Value == quotedPkg {
+			return nil
+		}
+	}
+
+	// Look for an existing import declaration.
+	for _, decl := range file.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.IMPORT {
+			continue
+		}
+
+		// Grouped import: import ( ... )
+		if gd.Lparen.IsValid() {
+			return &analysis.TextEdit{
+				Pos:     gd.Rparen,
+				End:     gd.Rparen,
+				NewText: []byte(fmt.Sprintf("\t%s\n", quotedPkg)),
+			}
+		}
+
+		// Single import: import "pkg" — replace with grouped import including new pkg.
+		existingImport := gd.Specs[0].(*ast.ImportSpec).Path.Value
+		return &analysis.TextEdit{
+			Pos:     gd.Pos(),
+			End:     gd.End(),
+			NewText: []byte(fmt.Sprintf("import (\n\t%s\n\t%s\n)", quotedPkg, existingImport)),
+		}
+	}
+
+	// No import declaration exists — insert after the package clause.
+	return &analysis.TextEdit{
+		Pos:     file.Name.End(),
+		End:     file.Name.End(),
+		NewText: []byte(fmt.Sprintf("\n\nimport %s", quotedPkg)),
+	}
 }

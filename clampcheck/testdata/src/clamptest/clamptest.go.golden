@@ -16,7 +16,7 @@ func reversed() {
 	hi := 100
 
 	// Should be flagged (reversed order).
-	x = min(max(x, hi), lo)
+	x = max(min(x, hi), lo)
 	_ = x
 }
 
@@ -27,7 +27,7 @@ func clampReturn(v, lo, hi int) int {
 }
 
 func clampReturnReversed(v, lo, hi int) int {
-	return min(max(v, hi), lo)
+	return max(min(v, hi), lo)
 }
 
 func clampReturnLEQ(v, lo, hi int) int {

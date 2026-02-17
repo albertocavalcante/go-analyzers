@@ -156,9 +156,18 @@ func checkClamp(pass *analysis.Pass, ifStmt *ast.IfStmt) {
 	rhs2Str := types.ExprString(body2.Rhs[0])
 	varStr := lhs1.Name
 
-	msg := fmt.Sprintf("clamp pattern can be simplified to %s = min(max(%s, %s), %s) or use a clamp helper",
-		varStr, varStr, rhs1Str, rhs2Str)
-	newText := fmt.Sprintf("%s = min(max(%s, %s), %s)", varStr, varStr, rhs1Str, rhs2Str)
+	// When the first condition checks the lower bound (< or <=), emit min(max(x, lo), hi).
+	// When the first condition checks the upper bound (> or >=), emit max(min(x, hi), lo).
+	var msg, newText string
+	if isLower1 {
+		msg = fmt.Sprintf("clamp pattern can be simplified to %s = min(max(%s, %s), %s) or use a clamp helper",
+			varStr, varStr, rhs1Str, rhs2Str)
+		newText = fmt.Sprintf("%s = min(max(%s, %s), %s)", varStr, varStr, rhs1Str, rhs2Str)
+	} else {
+		msg = fmt.Sprintf("clamp pattern can be simplified to %s = max(min(%s, %s), %s) or use a clamp helper",
+			varStr, varStr, rhs1Str, rhs2Str)
+		newText = fmt.Sprintf("%s = max(min(%s, %s), %s)", varStr, varStr, rhs1Str, rhs2Str)
+	}
 
 	pass.Report(analysis.Diagnostic{
 		Pos:     ifStmt.Pos(),
@@ -262,9 +271,18 @@ func checkConsecutiveIfReturn(pass *analysis.Pass, block *ast.BlockStmt) {
 		bound1Str := types.ExprString(ret1.Results[0])
 		bound2Str := types.ExprString(ret2.Results[0])
 
-		msg := fmt.Sprintf("clamp pattern can be simplified to return min(max(%s, %s), %s) or use a clamp helper",
-			varStr, bound1Str, bound2Str)
-		newText := fmt.Sprintf("return min(max(%s, %s), %s)", varStr, bound1Str, bound2Str)
+		// When the first condition checks the lower bound (< or <=), emit return min(max(v, lo), hi).
+		// When the first condition checks the upper bound (> or >=), emit return max(min(v, hi), lo).
+		var msg, newText string
+		if isLower1 {
+			msg = fmt.Sprintf("clamp pattern can be simplified to return min(max(%s, %s), %s) or use a clamp helper",
+				varStr, bound1Str, bound2Str)
+			newText = fmt.Sprintf("return min(max(%s, %s), %s)", varStr, bound1Str, bound2Str)
+		} else {
+			msg = fmt.Sprintf("clamp pattern can be simplified to return max(min(%s, %s), %s) or use a clamp helper",
+				varStr, bound1Str, bound2Str)
+			newText = fmt.Sprintf("return max(min(%s, %s), %s)", varStr, bound1Str, bound2Str)
+		}
 
 		pass.Report(analysis.Diagnostic{
 			Pos:     if1.Pos(),

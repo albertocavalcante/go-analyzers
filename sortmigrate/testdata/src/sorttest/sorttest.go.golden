@@ -1,6 +1,9 @@
 package sorttest
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 func example() {
 	ints := []int{3, 1, 2}
@@ -40,13 +43,13 @@ func sliceFuncs() {
 	s := []int{3, 1, 2}
 
 	// Should be flagged: sort.Slice -> slices.SortFunc.
-	slices.SortFunc(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.Slice can be replaced with slices\.SortFunc`
+	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.Slice can be replaced with slices\.SortFunc`
 
 	// Should be flagged: sort.SliceStable -> slices.SortStableFunc.
-	slices.SortStableFunc(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceStable can be replaced with slices\.SortStableFunc`
+	sort.SliceStable(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceStable can be replaced with slices\.SortStableFunc`
 
 	// Should be flagged: sort.SliceIsSorted -> slices.IsSortedFunc.
-	_ = slices.IsSortedFunc(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceIsSorted can be replaced with slices\.IsSortedFunc`
+	_ = sort.SliceIsSorted(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceIsSorted can be replaced with slices\.IsSortedFunc`
 }
 
 func noMatch() {
