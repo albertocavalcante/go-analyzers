@@ -17,4 +17,8 @@ func noMatch() {
 	// Custom search function, not sort.Search — should NOT be flagged.
 	Search := func(n int, f func(int) bool) int { return 0 }
 	_ = Search(10, func(i int) bool { return i >= 5 })
+
+	// sort.Search with wrong arg count — should NOT be flagged.
+	// (Can't actually call sort.Search with 1 arg — it won't compile.
+	// This is just to document the analyzer only checks 2-arg calls.)
 }

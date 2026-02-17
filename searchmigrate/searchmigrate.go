@@ -1,16 +1,20 @@
 // Package searchmigrate defines an analyzer that detects sort.Search calls
-// that could be replaced with slices.BinarySearch or slices.BinarySearchFunc.
+// that could potentially be replaced with slices.BinarySearch or
+// slices.BinarySearchFunc.
 //
 // # Analyzer searchmigrate
 //
-// searchmigrate: detect sort.Search that can be simplified to slices.BinarySearch
+// searchmigrate: detect sort.Search that can potentially use slices.BinarySearch
 //
-// This analyzer flags calls to sort.Search where the closure body is a
-// simple comparison against a slice element:
+// This analyzer flags all calls to sort.Search(n, func...) as candidates
+// for migration to the slices package. No auto-fix is provided because the
+// transformation depends on the closure body and is not always straightforward.
+//
+// Example:
 //
 //	sort.Search(len(s), func(i int) bool { return s[i] >= target })
 //
-// These can be replaced with:
+// May be replaceable with:
 //
 //	slices.BinarySearch(s, target)
 //

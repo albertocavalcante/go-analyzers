@@ -72,4 +72,14 @@ func noMatch() {
 	_ = 42
 	copy(dst4, src)
 	_ = dst4
+
+	// Plain assignment (=) — should NOT be flagged (only := is supported).
+	var dst5 []int
+	dst5 = make([]int, len(src))
+	copy(dst5, src)
+	_ = dst5
+
+	// Non-slice make (map) — should NOT be flagged.
+	m := make(map[string]int, len(src))
+	_ = m
 }

@@ -24,6 +24,7 @@ import (
 	"go/token"
 	"go/types"
 
+	"github.com/albertocavalcante/go-analyzers/internal/importutil"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -154,10 +155,10 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt, importEditAdded map[string]
 		}
 
 		// Add "slices" import if not already added for this file.
-		file := findFileForPos(pass, assign.Pos())
+		file := importutil.FindFileForPos(pass, assign.Pos())
 		fileName := pass.Fset.File(assign.Pos()).Name()
 		if file != nil && !importEditAdded[fileName] {
-			if ie := addImportEdit(file, "slices"); ie != nil {
+			if ie := importutil.AddImportEdit(file, "slices"); ie != nil {
 				edits = append(edits, *ie)
 				importEditAdded[fileName] = true
 			}
@@ -278,57 +279,3 @@ func sameExpr(pass *analysis.Pass, a, b ast.Expr) bool {
 	return false
 }
 
-// findFileForPos returns the *ast.File that contains the given position.
-func findFileForPos(pass *analysis.Pass, pos token.Pos) *ast.File {
-	for _, f := range pass.Files {
-		if pass.Fset.File(f.Pos()).Name() == pass.Fset.File(pos).Name() {
-			return f
-		}
-	}
-	return nil
-}
-
-// addImportEdit creates a TextEdit to add the given package to the file's imports.
-// It returns nil if the package is already imported.
-func addImportEdit(file *ast.File, pkg string) *analysis.TextEdit {
-	quotedPkg := fmt.Sprintf("%q", pkg)
-
-	// Check if already imported.
-	for _, imp := range file.Imports {
-		if imp.Path.Value == quotedPkg {
-			return nil
-		}
-	}
-
-	// Look for an existing import declaration.
-	for _, decl := range file.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok || gd.Tok != token.IMPORT {
-			continue
-		}
-
-		// Grouped import: import ( ... )
-		if gd.Lparen.IsValid() {
-			return &analysis.TextEdit{
-				Pos:     gd.Rparen,
-				End:     gd.Rparen,
-				NewText: []byte(fmt.Sprintf("\t%s\n", quotedPkg)),
-			}
-		}
-
-		// Single import: import "pkg" — replace with grouped import including new pkg.
-		existingImport := gd.Specs[0].(*ast.ImportSpec).Path.Value
-		return &analysis.TextEdit{
-			Pos:     gd.Pos(),
-			End:     gd.End(),
-			NewText: []byte(fmt.Sprintf("import (\n\t%s\n\t%s\n)", quotedPkg, existingImport)),
-		}
-	}
-
-	// No import declaration exists — insert after the package clause.
-	return &analysis.TextEdit{
-		Pos:     file.Name.End(),
-		End:     file.Name.End(),
-		NewText: []byte(fmt.Sprintf("\n\nimport %s", quotedPkg)),
-	}
-}

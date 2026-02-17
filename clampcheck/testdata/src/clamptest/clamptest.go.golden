@@ -54,6 +54,16 @@ func noMatchReturnDiffVars(v, lo, hi int) int {
 	return v
 }
 
+func exampleLEQ() {
+	x := 50
+	lo := 0
+	hi := 100
+
+	// Should be flagged (<=/>= in if-else-if form).
+	x = min(max(x, lo), hi)
+	_ = x
+}
+
 func noMatch() {
 	x := 50
 
@@ -74,6 +84,54 @@ func noMatch() {
 		x = 100
 	} else {
 		x = x + 1
+	}
+	_ = x
+
+	// Not a clamp — second condition checks a different variable.
+	z := 30
+	if x < 0 {
+		x = 0
+	} else if z > 100 {
+		x = 100
+	}
+	_ = x
+	_ = z
+
+	// Not a clamp — condition variable on the right side (lo > x).
+	lo := 0
+	hi := 100
+	if lo > x {
+		x = lo
+	} else if hi < x {
+		x = hi
+	}
+	_ = x
+	_ = lo
+	_ = hi
+
+	// Not a clamp — has init statement.
+	if v := x; v < 0 {
+		x = 0
+	} else if v > 100 {
+		x = 100
+	}
+	_ = x
+
+	// Not a clamp — uses := instead of = in body.
+	if x < 0 {
+		x := 0
+		_ = x
+	} else if x > 100 {
+		x = 100
+	}
+	_ = x
+
+	// Not a clamp — multi-statement body.
+	if x < 0 {
+		x = 0
+		_ = x
+	} else if x > 100 {
+		x = 100
 	}
 	_ = x
 }

@@ -134,19 +134,21 @@ func checkClamp(pass *analysis.Pass, ifStmt *ast.IfStmt) {
 		return
 	}
 
-	// The variable being compared in the conditions should be the same as
+	// The variable being compared in both conditions should be the same as
 	// the variable being assigned.
-	var condVar1 ast.Expr
-	if isLower1 || isUpper1 {
-		condVar1 = cond1.X
-	}
-
-	condVarIdent, ok := condVar1.(*ast.Ident)
+	condVarIdent1, ok := cond1.X.(*ast.Ident)
 	if !ok {
 		return
 	}
+	if pass.TypesInfo.ObjectOf(condVarIdent1) != pass.TypesInfo.ObjectOf(lhs1) {
+		return
+	}
 
-	if pass.TypesInfo.ObjectOf(condVarIdent) != pass.TypesInfo.ObjectOf(lhs1) {
+	condVarIdent2, ok := cond2.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+	if pass.TypesInfo.ObjectOf(condVarIdent2) != pass.TypesInfo.ObjectOf(lhs1) {
 		return
 	}
 

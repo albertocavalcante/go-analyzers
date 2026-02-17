@@ -1,0 +1,16 @@
+package sorttest
+
+import (
+	"slices"
+	"sort"
+)
+
+func alreadyImported() {
+	ints := []int{3, 1, 2}
+
+	// Should be flagged; slices already imported, no duplicate import needed.
+	sort.Ints(ints) // want `sort\.Ints can be replaced with slices\.Sort`
+
+	// Existing slices usage to justify the import.
+	_ = slices.Contains(ints, 1)
+}
