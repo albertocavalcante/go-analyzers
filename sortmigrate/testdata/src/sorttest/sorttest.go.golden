@@ -1,0 +1,61 @@
+package sorttest
+
+import "sort"
+
+func example() {
+	ints := []int{3, 1, 2}
+	strs := []string{"c", "a", "b"}
+	floats := []float64{3.0, 1.0, 2.0}
+
+	// Should be flagged: sort.Strings -> slices.Sort.
+	slices.Sort(strs) // want `sort\.Strings can be replaced with slices\.Sort`
+
+	// Should be flagged: sort.Ints -> slices.Sort.
+	slices.Sort(ints) // want `sort\.Ints can be replaced with slices\.Sort`
+
+	// Should be flagged: sort.Float64s -> slices.Sort.
+	slices.Sort(floats) // want `sort\.Float64s can be replaced with slices\.Sort`
+
+	_ = ints
+	_ = strs
+	_ = floats
+}
+
+func sortedChecks() {
+	ints := []int{1, 2, 3}
+	strs := []string{"a", "b", "c"}
+	floats := []float64{1.0, 2.0, 3.0}
+
+	// Should be flagged: sort.IntsAreSorted -> slices.IsSorted.
+	_ = slices.IsSorted(ints) // want `sort\.IntsAreSorted can be replaced with slices\.IsSorted`
+
+	// Should be flagged: sort.StringsAreSorted -> slices.IsSorted.
+	_ = slices.IsSorted(strs) // want `sort\.StringsAreSorted can be replaced with slices\.IsSorted`
+
+	// Should be flagged: sort.Float64sAreSorted -> slices.IsSorted.
+	_ = slices.IsSorted(floats) // want `sort\.Float64sAreSorted can be replaced with slices\.IsSorted`
+}
+
+func sliceFuncs() {
+	s := []int{3, 1, 2}
+
+	// Should be flagged: sort.Slice -> slices.SortFunc.
+	slices.SortFunc(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.Slice can be replaced with slices\.SortFunc`
+
+	// Should be flagged: sort.SliceStable -> slices.SortStableFunc.
+	slices.SortStableFunc(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceStable can be replaced with slices\.SortStableFunc`
+
+	// Should be flagged: sort.SliceIsSorted -> slices.IsSortedFunc.
+	_ = slices.IsSortedFunc(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceIsSorted can be replaced with slices\.IsSortedFunc`
+}
+
+func noMatch() {
+	// sort.Sort with an interface — NOT flagged (requires manual migration).
+	sort.Sort(sort.IntSlice([]int{3, 1, 2}))
+
+	// sort.Search — NOT flagged (handled by searchmigrate).
+	_ = sort.Search(10, func(i int) bool { return i >= 5 })
+
+	// sort.Stable with an interface — NOT flagged.
+	sort.Stable(sort.IntSlice([]int{3, 1, 2}))
+}

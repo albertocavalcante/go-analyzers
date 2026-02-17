@@ -25,6 +25,7 @@
 package clampcheck
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -155,9 +156,26 @@ func checkClamp(pass *analysis.Pass, ifStmt *ast.IfStmt) {
 	rhs2Str := types.ExprString(body2.Rhs[0])
 	varStr := lhs1.Name
 
-	pass.Reportf(ifStmt.Pos(),
-		"clamp pattern can be simplified to %s = min(max(%s, %s), %s) or use a clamp helper",
+	msg := fmt.Sprintf("clamp pattern can be simplified to %s = min(max(%s, %s), %s) or use a clamp helper",
 		varStr, varStr, rhs1Str, rhs2Str)
+	newText := fmt.Sprintf("%s = min(max(%s, %s), %s)", varStr, varStr, rhs1Str, rhs2Str)
+
+	pass.Report(analysis.Diagnostic{
+		Pos:     ifStmt.Pos(),
+		Message: msg,
+		SuggestedFixes: []analysis.SuggestedFix{
+			{
+				Message: msg,
+				TextEdits: []analysis.TextEdit{
+					{
+						Pos:     ifStmt.Pos(),
+						End:     ifStmt.End(),
+						NewText: []byte(newText),
+					},
+				},
+			},
+		},
+	})
 }
 
 // checkConsecutiveIfReturn looks for patterns like:
@@ -244,9 +262,26 @@ func checkConsecutiveIfReturn(pass *analysis.Pass, block *ast.BlockStmt) {
 		bound1Str := types.ExprString(ret1.Results[0])
 		bound2Str := types.ExprString(ret2.Results[0])
 
-		pass.Reportf(if1.Pos(),
-			"clamp pattern can be simplified to return min(max(%s, %s), %s) or use a clamp helper",
+		msg := fmt.Sprintf("clamp pattern can be simplified to return min(max(%s, %s), %s) or use a clamp helper",
 			varStr, bound1Str, bound2Str)
+		newText := fmt.Sprintf("return min(max(%s, %s), %s)", varStr, bound1Str, bound2Str)
+
+		pass.Report(analysis.Diagnostic{
+			Pos:     if1.Pos(),
+			Message: msg,
+			SuggestedFixes: []analysis.SuggestedFix{
+				{
+					Message: msg,
+					TextEdits: []analysis.TextEdit{
+						{
+							Pos:     if1.Pos(),
+							End:     retStmt.End(),
+							NewText: []byte(newText),
+						},
+					},
+				},
+			},
+		})
 	}
 }
 

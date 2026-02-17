@@ -1,0 +1,73 @@
+package makecopytest
+
+func example() {
+	src := []int{1, 2, 3}
+
+	// Should be flagged.
+	dst := slices.Clone(src)
+	_ = dst
+
+	// Should be flagged (string slice).
+	names := []string{"a", "b"}
+	result := slices.Clone(names)
+	_ = result
+}
+
+type GreenChild struct{ name string }
+
+type node struct {
+	children []GreenChild
+}
+
+func subsliceVariant() {
+	top := node{children: []GreenChild{{name: "a"}, {name: "b"}, {name: "c"}}}
+	idx := 1
+
+	// Should be flagged: make+copy with subslice, len of subslice form.
+	taken := slices.Clone(top.children[idx:])
+	_ = taken
+}
+
+func subsliceLenMinusIdx() {
+	src := []int{1, 2, 3, 4, 5}
+	start := 2
+
+	// Should be flagged: make+copy with len(src)-start == len(src[start:]).
+	dst := slices.Clone(src[start:])
+	_ = dst
+}
+
+func subsliceSimple() {
+	src := []string{"a", "b", "c", "d"}
+	i := 1
+
+	// Should be flagged: len(src[i:]) form directly.
+	dst := slices.Clone(src[i:])
+	_ = dst
+}
+
+func noMatch() {
+	src := []int{1, 2, 3}
+
+	// Different length — should NOT be flagged.
+	dst := make([]int, len(src)+1)
+	copy(dst, src)
+	_ = dst
+
+	// Three-arg make — should NOT be flagged.
+	dst2 := make([]int, len(src), 100)
+	copy(dst2, src)
+	_ = dst2
+
+	// Copy target differs — should NOT be flagged.
+	other := make([]int, 10)
+	dst3 := make([]int, len(src))
+	copy(dst3, other)
+	_ = dst3
+
+	// Not consecutive — should NOT be flagged.
+	dst4 := make([]int, len(src))
+	_ = 42
+	copy(dst4, src)
+	_ = dst4
+}

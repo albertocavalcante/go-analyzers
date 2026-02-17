@@ -1,0 +1,79 @@
+package clamptest
+
+func example() {
+	x := 50
+	lo := 0
+	hi := 100
+
+	// Should be flagged.
+	x = min(max(x, lo), hi)
+	_ = x
+}
+
+func reversed() {
+	x := 50
+	lo := 0
+	hi := 100
+
+	// Should be flagged (reversed order).
+	x = min(max(x, hi), lo)
+	_ = x
+}
+
+// Consecutive if-return clamp patterns (not else-if).
+
+func clampReturn(v, lo, hi int) int {
+	return min(max(v, lo), hi)
+}
+
+func clampReturnReversed(v, lo, hi int) int {
+	return min(max(v, hi), lo)
+}
+
+func clampReturnLEQ(v, lo, hi int) int {
+	return min(max(v, lo), hi)
+}
+
+func noMatchReturn(v int) int {
+	// Only one comparison — not a clamp.
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func noMatchReturnDiffVars(v, lo, hi int) int {
+	// Different variables in comparisons — not a clamp.
+	w := v + 1
+	if v < lo {
+		return lo
+	}
+	if w > hi {
+		return hi
+	}
+	return v
+}
+
+func noMatch() {
+	x := 50
+
+	// Not a clamp — different variables assigned.
+	y := 0
+	if x < 0 {
+		y = 0
+	} else if x > 100 {
+		x = 100
+	}
+	_ = x
+	_ = y
+
+	// Not a clamp — has else clause.
+	if x < 0 {
+		x = 0
+	} else if x > 100 {
+		x = 100
+	} else {
+		x = x + 1
+	}
+	_ = x
+}

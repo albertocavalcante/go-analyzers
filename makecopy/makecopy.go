@@ -19,6 +19,7 @@
 package makecopy
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
@@ -136,9 +137,26 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt) {
 	// Second arg should be len(src) — check multiple forms.
 	if matchLenSource(pass, makeCall.Args[1], copySrc) {
 		srcStr := types.ExprString(copySrc)
-		pass.Reportf(assign.Pos(),
-			"make+copy can be simplified to %s := slices.Clone(%s)",
+		msg := fmt.Sprintf("make+copy can be simplified to %s := slices.Clone(%s)",
 			dstIdent.Name, srcStr)
+		newText := fmt.Sprintf("%s := slices.Clone(%s)", dstIdent.Name, srcStr)
+
+		pass.Report(analysis.Diagnostic{
+			Pos:     assign.Pos(),
+			Message: msg,
+			SuggestedFixes: []analysis.SuggestedFix{
+				{
+					Message: msg,
+					TextEdits: []analysis.TextEdit{
+						{
+							Pos:     assign.Pos(),
+							End:     s2.End(),
+							NewText: []byte(newText),
+						},
+					},
+				},
+			},
+		})
 	}
 }
 

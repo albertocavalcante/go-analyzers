@@ -9,5 +9,5 @@ import (
 
 func TestSortMigrate(t *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, sortmigrate.Analyzer, "sorttest")
+	analysistest.RunWithSuggestedFixes(t, testdata, sortmigrate.Analyzer, "sorttest")
 }

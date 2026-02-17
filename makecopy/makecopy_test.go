@@ -9,5 +9,5 @@ import (
 
 func TestMakeCopy(t *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, makecopy.Analyzer, "makecopytest")
+	analysistest.RunWithSuggestedFixes(t, testdata, makecopy.Analyzer, "makecopytest")
 }

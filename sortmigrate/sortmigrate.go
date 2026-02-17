@@ -21,6 +21,7 @@
 package sortmigrate
 
 import (
+	"fmt"
 	"go/ast"
 	"go/types"
 
@@ -90,9 +91,26 @@ func run(pass *analysis.Pass) (any, error) {
 			return
 		}
 
-		pass.Reportf(call.Pos(),
-			"sort.%s can be replaced with %s",
-			funcName, replacement)
+		msg := fmt.Sprintf("sort.%s can be replaced with %s", funcName, replacement)
+
+		// Build the replacement text: replace "sort.FuncName" with "slices.NewName".
+		// The sel node spans from sort to FuncName (e.g., sort.Strings).
+		pass.Report(analysis.Diagnostic{
+			Pos:     call.Pos(),
+			Message: msg,
+			SuggestedFixes: []analysis.SuggestedFix{
+				{
+					Message: msg,
+					TextEdits: []analysis.TextEdit{
+						{
+							Pos:     sel.Pos(),
+							End:     sel.Sel.End(),
+							NewText: []byte(replacement),
+						},
+					},
+				},
+			},
+		})
 	})
 
 	return nil, nil

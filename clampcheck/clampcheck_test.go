@@ -9,5 +9,5 @@ import (
 
 func TestClampCheck(t *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, clampcheck.Analyzer, "clamptest")
+	analysistest.RunWithSuggestedFixes(t, testdata, clampcheck.Analyzer, "clamptest")
 }
