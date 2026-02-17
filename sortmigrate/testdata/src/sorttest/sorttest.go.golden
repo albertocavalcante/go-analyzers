@@ -1,6 +1,7 @@
 package sorttest
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 )
@@ -43,13 +44,13 @@ func sliceFuncs() {
 	s := []int{3, 1, 2}
 
 	// Should be flagged: sort.Slice -> slices.SortFunc.
-	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.Slice can be replaced with slices\.SortFunc`
+	slices.SortFunc(s, func(a, b int) int { return cmp.Compare(a, b) }) // want `sort\.Slice can be replaced with slices\.SortFunc`
 
 	// Should be flagged: sort.SliceStable -> slices.SortStableFunc.
-	sort.SliceStable(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceStable can be replaced with slices\.SortStableFunc`
+	slices.SortStableFunc(s, func(a, b int) int { return cmp.Compare(a, b) }) // want `sort\.SliceStable can be replaced with slices\.SortStableFunc`
 
 	// Should be flagged: sort.SliceIsSorted -> slices.IsSortedFunc.
-	_ = sort.SliceIsSorted(s, func(i, j int) bool { return s[i] < s[j] }) // want `sort\.SliceIsSorted can be replaced with slices\.IsSortedFunc`
+	_ = slices.IsSortedFunc(s, func(a, b int) int { return cmp.Compare(a, b) }) // want `sort\.SliceIsSorted can be replaced with slices\.IsSortedFunc`
 }
 
 func noMatch() {

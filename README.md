@@ -23,7 +23,165 @@ Go 1.21+ modernization patterns. These analyzers fill the remaining gaps:
 - **`makecopy`**: `modernize`'s `appendclipped` only catches `append`-based clones, not `make`+`copy`. Also detects subslice variants like `make([]T, len(s)-idx); copy(dst, s[idx:])`.
 - **`searchmigrate`**: No existing linter detects `sort.Search` → `slices.BinarySearch`.
 - **`clampcheck`**: `modernize`'s `minmax` handles simple `if/else` → `min`/`max` but deliberately excludes nested `if-elseif-else` clamp patterns. Also detects consecutive if-return clamp patterns.
-- **`sortmigrate`**: Detects deprecated `sort.Strings`, `sort.Ints`, `sort.Float64s`, `sort.Slice`, `sort.SliceStable`, `sort.SliceIsSorted`, and their `AreSorted` variants, suggesting `slices.Sort`, `slices.SortFunc`, `slices.IsSorted`, etc.
+- **`sortmigrate`**: Detects deprecated `sort.Strings`, `sort.Ints`, `sort.Float64s`, `sort.Slice`, `sort.SliceStable`, `sort.SliceIsSorted`, and their `AreSorted` variants, suggesting `slices.Sort`, `slices.SortFunc`, `slices.IsSorted`, etc. Includes auto-fix for `sort.Slice` callback rewriting — a gap the Go team's `modernize` [explicitly deferred](https://github.com/golang/go/issues/67795).
+
+## sortmigrate: auto-fix deep dive
+
+`sortmigrate` handles two categories of sort-to-slices migrations:
+
+**Direct replacements** (always auto-fixed) — the function signature is identical:
+
+```
+sort.Strings(s)           →  slices.Sort(s)
+sort.Ints(s)              →  slices.Sort(s)
+sort.Float64s(s)          →  slices.Sort(s)
+sort.IntsAreSorted(s)     →  slices.IsSorted(s)
+sort.StringsAreSorted(s)  →  slices.IsSorted(s)
+sort.Float64sAreSorted(s) →  slices.IsSorted(s)
+```
+
+**Callback rewrites** (auto-fixed when the pattern is recognized) — the callback
+signature changes from `func(i, j int) bool` to `func(a, b T) int`:
+
+```
+sort.Slice(s, less)          →  slices.SortFunc(s, cmp)
+sort.SliceStable(s, less)    →  slices.SortStableFunc(s, cmp)
+sort.SliceIsSorted(s, less)  →  slices.IsSortedFunc(s, cmp)
+```
+
+### What the fixer rewrites automatically
+
+The fixer handles single-return comparison callbacks. It infers the element type
+from the slice argument, rewrites index-based access (`s[i]`, `s[j]`) to
+value-based parameters (`a`, `b`), and converts boolean comparison to
+`cmp.Compare`:
+
+```go
+// Before
+sort.Slice(items, func(i, j int) bool {
+    return items[i].Name < items[j].Name
+})
+
+// After (auto-fixed)
+slices.SortFunc(items, func(a, b Item) int {
+    return cmp.Compare(a.Name, b.Name)
+})
+```
+
+Supported patterns:
+
+| Pattern | Example | Result |
+|---|---|---|
+| Direct comparison | `s[i] < s[j]` | `cmp.Compare(a, b)` |
+| Field access | `s[i].Name < s[j].Name` | `cmp.Compare(a.Name, b.Name)` |
+| Method call | `s[i].Key() < s[j].Key()` | `cmp.Compare(a.Key(), b.Key())` |
+| Chained access | `s[i].Inner.Key < s[j].Inner.Key` | `cmp.Compare(a.Inner.Key, b.Inner.Key)` |
+| Reversed (`>`) | `s[i] > s[j]` | `cmp.Compare(b, a)` |
+| Swapped params | `s[j] < s[i]` | `cmp.Compare(b, a)` |
+| Pointer elements | `[]*Item` with `s[i].F < s[j].F` | `func(a, b *Item) int { ... }` |
+| Cross-package types | `[]fs.DirEntry` (when `"io/fs"` is imported) | `func(a, b fs.DirEntry) int { ... }` |
+| All operators | `<`, `>`, `<=`, `>=` | Correctly mapped |
+| All three functions | `Slice`, `SliceStable`, `SliceIsSorted` | `SortFunc`, `SortStableFunc`, `IsSortedFunc` |
+
+### What stays report-only (and why)
+
+These cases emit a diagnostic but no auto-fix. The developer must migrate manually.
+
+**Multi-statement callbacks:**
+
+```go
+sort.Slice(items, func(i, j int) bool {
+    if items[i].Priority != items[j].Priority {
+        return items[i].Priority < items[j].Priority
+    }
+    return items[i].Name < items[j].Name
+})
+```
+
+This is a multi-key sort. The correct migration is a cascading `cmp.Compare`
+chain, but recognizing arbitrary multi-key patterns reliably is complex. A future
+version may handle the common cascading-if pattern.
+
+**Non-inline callbacks:**
+
+```go
+less := func(i, j int) bool { return s[i] < s[j] }
+sort.Slice(s, less)  // variable reference, not a func literal
+```
+
+The fixer only analyzes inline `func` literals. Tracing variable definitions
+across scopes is fragile and out of scope.
+
+**Cross-package types without import:**
+
+```go
+// File does NOT import "io/fs"
+func process(entries []fs.DirEntry) {
+    sort.Slice(entries, func(i, j int) bool { ... })
+}
+```
+
+The fix would generate `func(a, b fs.DirEntry)` but `"io/fs"` isn't imported.
+Adding arbitrary package imports is outside the fixer's scope. If the file already
+imports the package, the fix proceeds normally.
+
+**Aliased cross-package imports:**
+
+```go
+import myfs "io/fs"
+```
+
+The generated code uses the canonical package name (`fs.DirEntry`) from the type
+system, which won't match an alias (`myfs`). The fixer bails out rather than
+produce code that references an undefined name.
+
+**Non-identifier slice arguments:**
+
+```go
+sort.Slice(obj.GetItems(), func(i, j int) bool { ... })
+```
+
+The fixer matches the slice variable name in the callback body (e.g., `s[i]`
+must match the `s` passed to `sort.Slice`). When the slice argument is a method
+call or field access rather than a simple variable name, name matching can't work.
+
+### The fundamental limitation
+
+`sort.Slice` uses a **less** function (`func(i, j int) bool`) while
+`slices.SortFunc` uses a **comparison** function (`func(a, b T) int`). These have
+different information content:
+
+- `less(a, b) = true` means `a < b` (→ return `-1`)
+- `less(a, b) = false` means `a >= b`, but we **don't know** if `a == b` or `a > b`
+
+A correct general conversion requires **two** calls to the original less function:
+
+```go
+slices.SortFunc(s, func(a, b T) int {
+    if less(a, b) { return -1 }  // a < b
+    if less(b, a) { return 1 }   // a > b
+    return 0                      // a == b
+})
+```
+
+This is semantically correct but doubles the comparison cost and produces ugly
+code that a developer should simplify by hand. That's why the fixer only handles
+patterns where it can emit a clean, single-evaluation `cmp.Compare` call —
+anything else is better left to the developer.
+
+### vs modernize's slicessort
+
+Go's official `modernize` analyzer includes a `slicessort` check, but it only
+handles the **trivial** case where the entire closure can be dropped:
+
+```go
+sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
+→ slices.Sort(s)  // modernize handles this
+```
+
+The `sort.Slice → slices.SortFunc` conversion (where the callback must be
+rewritten, not dropped) was [explicitly deferred](https://github.com/golang/go/issues/67795)
+by the Go team as too complex. That's the gap this analyzer fills.
 
 ## Installation
 
