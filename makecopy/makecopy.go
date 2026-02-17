@@ -169,7 +169,7 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt, importEditAdded map[string]
 			Message: msg,
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
-					Message: msg,
+					Message:   msg,
 					TextEdits: edits,
 				},
 			},
@@ -278,4 +278,3 @@ func sameExpr(pass *analysis.Pass, a, b ast.Expr) bool {
 
 	return false
 }
-

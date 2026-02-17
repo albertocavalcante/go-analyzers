@@ -1,0 +1,95 @@
+output:
+  - meta
+  - summary
+  - success
+
+pre-commit:
+  parallel: true
+  commands:
+    trailing-whitespace:
+      glob: "*.{md,yml,yaml,json,toml,go,sh}"
+      run: |
+        for file in {staged_files}; do
+          if grep -qP '\s+$' "$file" 2>/dev/null; then
+            echo "Trailing whitespace found in $file"
+            exit 1
+          fi
+        done
+      fail_text: "Remove trailing whitespace before committing"
+
+    no-secrets:
+      run: |
+        for file in $(git diff --cached --name-only --diff-filter=ACM); do
+          case "$file" in lefthook.yml|lefthook-local.yml) continue ;; esac
+          if echo "$file" | grep -qiE '\.(env|pem|key|p12|pfx|credentials)$'; then
+            echo "Potentially sensitive file staged: $file"
+            exit 1
+          fi
+          if grep -qE '(AKIA[0-9A-Z]{16}|sk-[a-zA-Z0-9]{48}|ghp_[a-zA-Z0-9]{36}|-----BEGIN (RSA |EC )?PRIVATE KEY)' "$file" 2>/dev/null; then
+            echo "Possible secret/key found in $file"
+            exit 1
+          fi
+        done
+      fail_text: "Do not commit secrets or credentials"
+
+    large-files:
+      run: |
+        max_size=1048576  # 1MB
+        for file in $(git diff --cached --name-only --diff-filter=ACM); do
+          size=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+          if [ "$size" -gt "$max_size" ]; then
+            size_mb=$(echo "scale=1; $size / 1048576" | bc)
+            echo "File $file is ${size_mb}MB (max 1MB) -- use .gitignore or Git LFS"
+            exit 1
+          fi
+        done
+      fail_text: "Do not commit files larger than 1MB"
+
+    go-fmt:
+      glob: "*.go"
+      run: |
+        unformatted=$(gofmt -l {staged_files})
+        if [ -n "$unformatted" ]; then
+          echo "Run gofmt on: $unformatted"
+          exit 1
+        fi
+      fail_text: "Run 'gofmt -w .' to fix formatting"
+
+    go-vet:
+      glob: "*.go"
+      run: go vet ./...
+      fail_text: "Fix go vet issues before committing"
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: |
+        msg=$(head -1 {1})
+        if ! echo "$msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
+          echo "Commit message must follow conventional format: type(scope): description"
+          echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+          echo "Got: $msg"
+          exit 1
+        fi
+      fail_text: "Use conventional commit format: type(scope): description"
+
+    msg-length:
+      run: |
+        msg=$(head -1 {1})
+        len=${#msg}
+        if [ "$len" -gt 72 ]; then
+          echo "Commit message first line is $len chars (max 72)"
+          exit 1
+        fi
+      fail_text: "Keep commit message first line under 72 characters"
+
+pre-push:
+  parallel: true
+  commands:
+    go-build:
+      run: go build ./...
+      fail_text: "Fix build errors before pushing"
+
+    go-test:
+      run: go test -race ./...
+      fail_text: "Tests must pass before pushing"
