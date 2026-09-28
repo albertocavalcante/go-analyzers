@@ -11,3 +11,7 @@ func TestMakeCopy(t *testing.T) {
 	testdata := analysistest.TestData()
 	analysistest.RunWithSuggestedFixes(t, testdata, makecopy.Analyzer, "makecopytest")
 }
+
+func TestStringSource(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), makecopy.Analyzer, "stringcopytest")
+}

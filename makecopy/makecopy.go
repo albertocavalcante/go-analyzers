@@ -138,6 +138,15 @@ func checkPair(pass *analysis.Pass, s1, s2 ast.Stmt, importEditAdded map[string]
 	}
 
 	copySrc := copyCall.Args[1]
+	// copy also accepts a string source for []byte destinations, whereas
+	// slices.Clone requires a slice. Do not suggest an uncompilable replacement.
+	srcType := pass.TypesInfo.TypeOf(copySrc)
+	if srcType == nil {
+		return
+	}
+	if _, ok := srcType.Underlying().(*types.Slice); !ok {
+		return
+	}
 
 	// Second arg should be len(src) — check multiple forms.
 	if matchLenSource(pass, makeCall.Args[1], copySrc) {
