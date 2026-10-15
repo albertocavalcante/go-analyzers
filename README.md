@@ -1,5 +1,21 @@
 # go-analyzers
 
+For SARIF output, install `./cmd/go-analyzers-sarif` and run:
+
+```sh
+go-analyzers-sarif --root=/checkout ./... > findings.sarif
+```
+
+This command uses the standard Go analysis checker and retains native source
+regions, related information, rule documentation, and suggested fixes. Source
+snapshots are captured during package loading. The existing `go-analyzers`
+multichecker/vet tool and golangci-lint plugin are unchanged.
+
+The SARIF command returns 0 for clean analysis, 1 for findings, and 2 for package
+loading, analysis, or reporting failures. `--fail-on=none` disables the findings
+gate while retaining execution failures. Reports include unsuccessful invocations
+for incomplete analysis. Keep the command's exit status when uploading artifacts.
+
 Custom Go static analyzers for modern Go 1.25+ idioms. These analyzers detect
 patterns that can be simplified using newer standard library functions.
 
